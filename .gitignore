@@ -1,0 +1,19 @@
+node_modules/
+data/*.sqlite
+data/*.sqlite-shm
+data/*.sqlite-wal
+
+# Keep generated/runtime and submission materials local; publish the code only.
+debug.log
+DOCUMENTO_ENTREGA_FINAL.docx
+docs/
+diagramas_staruml/
+imagenes_diagramas/
+scripts/
+modelo_datos/01_MER_conceptual.md
+modelo_datos/02_MR_relacional.md
+src/public/_mock/
+src/public/header_logo.png
+src/public/logo.jpg
+src/public/primary_logo.jpg
+src/public/primary_logo.png

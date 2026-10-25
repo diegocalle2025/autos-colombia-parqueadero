@@ -1,0 +1,290 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Autos Colombia - Control de Acceso y Patio</title>
+  <link rel="icon" type="image/jpeg" href="favicon.jpg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Mono:wght@700&display=swap" rel="stylesheet">
+  <script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <header class="app-header">
+    <div class="brand-area" onclick="irAlHome()">
+      <img src="footer_logo.jpg" alt="Logo Autos Colombia" class="brand-primary-logo" id="logo-header">
+      <p class="subtitle">Control Operativo de Accesos y Patio - Mensualidades</p>
+    </div>
+
+    <div class="header-center-title" onclick="irAlHome()">
+      <h1 class="header-brand-name">AUTOS COLOMBIA</h1>
+      <span class="header-badge-live"><span class="live-dot"></span> SISTEMA ACTIVO</span>
+    </div>
+
+    <div class="status-ribbon">
+      <div class="stat-chip">
+        <span class="chip-label">Celdas Totales</span>
+        <span class="chip-val" id="stat-total">0</span>
+      </div>
+      <div class="stat-chip available">
+        <span class="chip-label">Disponibles</span>
+        <span class="chip-val" id="stat-libres">0</span>
+      </div>
+      <div class="stat-chip occupied">
+        <span class="chip-label">Ocupadas</span>
+        <span class="chip-val" id="stat-ocupadas">0</span>
+      </div>
+      <div class="clock-display" id="live-clock">--:--:--</div>
+    </div>
+  </header>
+
+  <nav class="nav-toolbar">
+    <div class="tab-group">
+      <button class="tab-btn active" id="tab-patio-btn" onclick="cambiarPestana('patio')">Patio en Vivo</button>
+      <button class="tab-btn" id="tab-mensualistas-btn" onclick="cambiarPestana('mensualistas')">Abonados Registrados</button>
+      <button class="tab-btn" id="tab-historial-btn" onclick="cambiarPestana('historial')">Auditoría / Historial</button>
+      <a href="/diagramas.html" target="_blank" class="tab-btn" style="text-decoration: none; color: var(--accent-amber);">Ver Diagramas Visuales ↗</a>
+    </div>
+
+    <div class="action-group">
+      <button class="btn-primary" onclick="abrirModalEntrada()">
+        <span class="btn-icon">+</span> Registrar Entrada (F2)
+      </button>
+    </div>
+  </nav>
+
+  <main class="main-container">
+
+    <section id="vista-patio" class="view-panel active">
+      <div class="panel-card">
+        <div class="card-header">
+          <div>
+            <h2>Mapa de Celdas de Parqueo</h2>
+            <p class="card-sub">Visualización de distribución espacial por sectores</p>
+          </div>
+          <div class="legend-bar">
+            <span class="legend-item"><span class="indicator free"></span> Disponible</span>
+            <span class="legend-item"><span class="indicator busy"></span> Ocupada</span>
+          </div>
+        </div>
+        <div class="cell-grid" id="grid-celdas"></div>
+      </div>
+
+      <div class="panel-card mt-4">
+        <div class="card-header">
+          <div>
+            <h2>Vehículos Actualmente en Parqueadero</h2>
+            <p class="card-sub">Automotores con ingreso activo y celda asignada</p>
+          </div>
+          <div class="search-box">
+            <input type="text" id="filtro-placa" placeholder="Buscar por placa o cliente..." oninput="filtrarActivos()">
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Placa</th>
+                <th>Abonado</th>
+                <th>Tipo</th>
+                <th>Celda</th>
+                <th>Hora Entrada</th>
+                <th>Estadía</th>
+                <th>Novedades</th>
+                <th>Acción</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-activos"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="vista-mensualistas" class="view-panel">
+      <div class="panel-card">
+        <div class="card-header">
+          <div>
+            <h2>Directorio de Clientes con Mensualidad</h2>
+            <p class="card-sub">Registro de vehículos y estado de suscripción</p>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Placa</th>
+                <th>Propietario</th>
+                <th>Documento</th>
+                <th>Teléfono</th>
+                <th>Vehículo</th>
+                <th>Estado Plan</th>
+                <th>Vencimiento</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-mensualistas"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="vista-historial" class="view-panel">
+      <div class="panel-card">
+        <div class="card-header">
+          <div>
+            <h2>Registro Histórico de Movimientos</h2>
+            <p class="card-sub">Entradas, salidas y tiempo de permanencia registrado</p>
+          </div>
+          <div class="history-filters">
+            <label>Placa<input type="search" id="historial-placa" maxlength="7" placeholder="ABC123"></label>
+            <label>Desde<input type="date" id="historial-desde"></label>
+            <label>Hasta<input type="date" id="historial-hasta"></label>
+            <button class="btn-secondary" onclick="cargarHistorial()">Filtrar</button>
+            <button class="btn-secondary" onclick="limpiarFiltroHistorial()" aria-label="Limpiar filtros">Limpiar</button>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Folio</th>
+                <th>Placa</th>
+                <th>Cliente</th>
+                <th>Celda</th>
+                <th>Operador</th>
+                <th>Entrada</th>
+                <th>Salida</th>
+                <th>Permanencia</th>
+                <th>Novedades Registradas</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-historial"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="app-footer">
+    <div class="footer-top-divider">
+      <span class="footer-divider-dot"></span>
+      <span class="footer-divider-dot"></span>
+      <span class="footer-divider-dot"></span>
+    </div>
+    <div class="footer-container">
+
+      <div class="footer-col footer-col-brand">
+        <img src="text_logotypes.jpg" alt="Autos Colombia Logotipo" class="footer-text-logo">
+        <p class="footer-tagline">Soluciones de parqueo inteligente para abonados mensualistas.</p>
+      </div>
+
+      <div class="footer-col footer-col-info">
+        <h4 class="footer-col-title">&#128205; Información del Sistema</h4>
+        <ul class="footer-list">
+          <li><span class="footer-lbl">Módulo:</span> Control Operativo de Accesos y Patio</li>
+          <li><span class="footer-lbl">Versión:</span> Iteración 1 — Prototipo Funcional</li>
+          <li><span class="footer-lbl">Estación:</span> Portería Principal</li>
+        </ul>
+      </div>
+
+      <div class="footer-col footer-col-status">
+        <h4 class="footer-col-title">&#9881; Estado del Sistema</h4>
+        <ul class="footer-list">
+          <li>
+            <span class="footer-status-badge online">&#9679; Operativo</span>
+          </li>
+          <li><span class="footer-lbl">Datos:</span> SQLite persistente</li>
+          <li><span class="footer-lbl">Soporte:</span> Ingeniería de Software — 2025</li>
+        </ul>
+      </div>
+
+    </div>
+
+    <div class="footer-bottom">
+      <p>&copy; 2025 Parqueadero <strong>Autos Colombia S.A.S.</strong> — Todos los derechos reservados.</p>
+      <p class="footer-course-tag">Proyecto académico · Ingeniería de Software · Iteración 1</p>
+    </div>
+  </footer>
+
+  <div class="modal-backdrop" id="modal-entrada">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Registrar Ingreso de Vehículo</h3>
+        <button class="btn-close" onclick="cerrarModalEntrada()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="input-placa">Placa del Automotor</label>
+          <div class="input-action-row">
+            <input type="text" id="input-placa" class="plate-input" placeholder="ABC123" maxlength="7" autofocus>
+            <button class="btn-secondary" onclick="verificarPlaca()">Validar Mensualidad</button>
+          </div>
+          <p class="field-hint">Presione Validar o Enter para comprobar vigencia del abonado</p>
+        </div>
+
+        <div id="card-resultado-validacion" class="validation-box hidden"></div>
+
+        <div class="form-group">
+          <label for="select-celda">Asignar Celda</label>
+          <select id="select-celda" class="form-control" disabled>
+            <option value="">Valide una placa primero...</option>
+          </select>
+        </div>
+
+        <div class="novedad-section">
+          <label class="checkbox-container">
+            <input type="checkbox" id="check-novedad" onchange="toggleSeccionNovedad()">
+            <span>Reportar novedad o daño físico al ingresar</span>
+          </label>
+          
+          <div id="caja-novedad" class="subform hidden">
+            <div class="form-group">
+              <label for="select-tipo-novedad">Tipo de Novedad</label>
+              <select id="select-tipo-novedad" class="form-control">
+                <option value="Carroceria">Carrocería / Rayón / Golpe</option>
+                <option value="Vidrios">Vidrios / Panorámico / Luces</option>
+                <option value="Llantas">Llantas / Rines / Presión</option>
+                <option value="Objetos">Objetos de valor a la vista</option>
+                <option value="Otro">Otra novedad</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="text-desc-novedad">Observación de la Novedad</label>
+              <textarea id="text-desc-novedad" class="form-control" rows="2" placeholder="Especifique ubicación del detalle (ej. raspadura en bomper delantero)..."></textarea>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="cerrarModalEntrada()">Cancelar</button>
+        <button class="btn-primary" id="btn-confirmar-entrada" onclick="guardarEntrada()" disabled>Confirmar Ingreso y Celda</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="modal-salida">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Registrar Salida de Vehículo</h3>
+        <button class="btn-close" onclick="cerrarModalSalida()">&times;</button>
+      </div>
+      <div class="modal-body" id="salida-detalles"></div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="cerrarModalSalida()">Volver</button>
+        <button class="btn-danger" id="btn-confirmar-salida" onclick="guardarSalida()">Confirmar Salida y Liberar Celda</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
+
+
