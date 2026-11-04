@@ -190,6 +190,7 @@ body {
 
 .tab-group {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
 }
 
@@ -498,6 +499,61 @@ body {
 
 .data-table tr:hover {
   background-color: var(--bg-card-hover);
+}
+
+.management-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  align-items: end;
+  gap: 1rem;
+}
+
+.management-form label {
+  display: grid;
+  gap: 0.4rem;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.management-form input,
+.management-form select {
+  width: 100%;
+  min-height: 42px;
+  padding: 0.6rem 0.75rem;
+  color: var(--text-main);
+  background: var(--bg-deep);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font: inherit;
+}
+
+.management-form input:focus,
+.management-form select:focus {
+  outline: 2px solid var(--accent-amber);
+  outline-offset: 1px;
+}
+
+.management-form .btn-primary {
+  justify-content: center;
+  min-height: 42px;
+}
+
+.management-form .form-message {
+  grid-column: 1 / -1;
+  min-height: 1.4em;
+  color: var(--status-available);
+  font-size: 0.88rem;
+}
+
+.management-form .form-message.error {
+  color: var(--status-occupied);
+}
+
+.data-table .empty-state {
+  padding: 1.5rem;
+  color: var(--text-muted);
+  text-align: center;
 }
 
 .plate-badge {
@@ -985,5 +1041,4 @@ body {
     overflow-wrap: anywhere;
   }
 }
-
 

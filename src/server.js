@@ -18,6 +18,126 @@ app.use(cors());
 app.use(express.json({ limit: '32kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+const CELL_TYPES = new Set(['Automóvil', 'Camioneta', 'Motocicleta']);
+
+function getRequiredText(body, field, label, maxLength) {
+  const value = body?.[field];
+  if (typeof value !== 'string' || !value.trim()) {
+    return { error: `${label} es obligatorio.` };
+  }
+  const trimmedValue = value.trim();
+  if (trimmedValue.length > maxLength) {
+    return { error: `${label} no puede superar ${maxLength} caracteres.` };
+  }
+  return { value: trimmedValue };
+}
+
+app.get('/api/usuarios', (req, res) => {
+  const users = database.prepare(`
+    SELECT documento_identidad AS documento, nombres, apellidos, telefono,
+           correo_electronico AS correo, fecha_registro, estado_usuario AS estado
+    FROM usuarios
+    ORDER BY nombres COLLATE NOCASE, apellidos COLLATE NOCASE, documento_identidad
+  `).all();
+  res.json(users);
+});
+
+app.post('/api/usuarios', (req, res) => {
+  const fields = [
+    ['documento_identidad', 'documento de identidad', 40],
+    ['nombres', 'nombres', 100],
+    ['apellidos', 'apellidos', 100],
+    ['telefono', 'teléfono', 30],
+    ['correo_electronico', 'correo electrónico', 254]
+  ];
+  const values = {};
+  for (const [field, label, maxLength] of fields) {
+    const result = getRequiredText(req.body, field, label, maxLength);
+    if (result.error) return res.status(400).json({ error: result.error, campo: field });
+    values[field] = result.value;
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.correo_electronico)) {
+    return res.status(400).json({ error: 'Ingrese un correo electrónico válido.', campo: 'correo_electronico' });
+  }
+
+  try {
+    const result = database.prepare(`
+      INSERT INTO usuarios
+        (documento_identidad, nombres, apellidos, telefono, correo_electronico)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(
+      values.documento_identidad,
+      values.nombres,
+      values.apellidos,
+      values.telefono,
+      values.correo_electronico
+    );
+    const user = database.prepare(`
+      SELECT documento_identidad AS documento, nombres, apellidos, telefono,
+             correo_electronico AS correo, fecha_registro, estado_usuario AS estado
+      FROM usuarios WHERE id_usuario = ?
+    `).get(Number(result.lastInsertRowid));
+    return res.status(201).json({ mensaje: 'Usuario registrado correctamente.', usuario: user });
+  } catch (error) {
+    if (error.code === 'ERR_SQLITE_ERROR'
+        && String(error.message).includes('UNIQUE constraint failed: usuarios.documento_identidad')) {
+      return res.status(409).json({ error: 'El documento de identidad ya está registrado.', campo: 'documento_identidad' });
+    }
+    console.error('Error al registrar usuario:', error.message);
+    return res.status(500).json({ error: 'No fue posible registrar el usuario.' });
+  }
+});
+
+app.get('/api/celdas', (req, res) => {
+  const cells = database.prepare(`
+    SELECT codigo_celda AS codigo, tipo_permitido AS tipo,
+           estado_celda AS estado, ubicacion_sector AS ubicacion
+    FROM celdas
+    ORDER BY codigo_celda
+  `).all();
+  res.json(cells);
+});
+
+app.post('/api/celdas', (req, res) => {
+  const fields = [
+    ['codigo_celda', 'código de celda', 30],
+    ['tipo_permitido', 'tipo de vehículo', 30],
+    ['ubicacion_sector', 'ubicación o sector', 100]
+  ];
+  const values = {};
+  for (const [field, label, maxLength] of fields) {
+    const result = getRequiredText(req.body, field, label, maxLength);
+    if (result.error) return res.status(400).json({ error: result.error, campo: field });
+    values[field] = result.value;
+  }
+  if (!CELL_TYPES.has(values.tipo_permitido)) {
+    return res.status(400).json({
+      error: 'El tipo de vehículo debe ser Automóvil, Camioneta o Motocicleta.',
+      campo: 'tipo_permitido'
+    });
+  }
+
+  try {
+    database.prepare(`
+      INSERT INTO celdas (codigo_celda, tipo_permitido, ubicacion_sector)
+      VALUES (?, ?, ?)
+    `).run(values.codigo_celda, values.tipo_permitido, values.ubicacion_sector);
+    const cell = database.prepare(`
+      SELECT codigo_celda AS codigo, tipo_permitido AS tipo,
+             estado_celda AS estado, ubicacion_sector AS ubicacion
+      FROM celdas WHERE codigo_celda = ?
+    `).get(values.codigo_celda);
+    return res.status(201).json({ mensaje: 'Celda registrada correctamente.', celda: cell });
+  } catch (error) {
+    if (error.code === 'ERR_SQLITE_ERROR'
+        && String(error.message).includes('UNIQUE constraint failed: celdas.codigo_celda')) {
+      return res.status(409).json({ error: 'El código de celda ya está registrado.', campo: 'codigo_celda' });
+    }
+    console.error('Error al registrar celda:', error.message);
+    return res.status(500).json({ error: 'No fue posible registrar la celda.' });
+  }
+});
+
 function getNoveltyList(accessId) {
   return database.prepare(`
     SELECT id_novedad, id_acceso, momento_registro AS momento,

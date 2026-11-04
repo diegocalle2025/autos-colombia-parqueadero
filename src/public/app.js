@@ -3,10 +3,21 @@ let vehiculoValidado = null;
 let accesoParaSalida = null;
 let celdaPreseleccionada = null;
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, character => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[character]);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   iniciarReloj();
   cargarPatio();
   configurarAtajosTeclado();
+  configurarGestion();
   setInterval(() => {
     if (!document.hidden && !document.querySelector('.modal-backdrop.open')) cargarPatio();
   }, 15000);
@@ -61,6 +72,149 @@ function cambiarPestana(nombre) {
   if (nombre === 'patio') cargarPatio();
   if (nombre === 'mensualistas') cargarMensualistas();
   if (nombre === 'historial') cargarHistorial();
+  if (nombre === 'usuarios') cargarUsuarios();
+  if (nombre === 'celdas') cargarCeldas();
+}
+
+function configurarGestion() {
+  document.getElementById('form-usuario').addEventListener('submit', registrarUsuario);
+  document.getElementById('form-celda').addEventListener('submit', registrarCelda);
+}
+
+function addEmptyRow(tbody, columnCount, message) {
+  const row = document.createElement('tr');
+  const cell = document.createElement('td');
+  cell.colSpan = columnCount;
+  cell.className = 'empty-state';
+  cell.textContent = message;
+  row.appendChild(cell);
+  tbody.appendChild(row);
+}
+
+function addDataRow(tbody, values) {
+  const row = document.createElement('tr');
+  for (const value of values) {
+    const cell = document.createElement('td');
+    cell.textContent = value == null ? '' : String(value);
+    row.appendChild(cell);
+  }
+  tbody.appendChild(row);
+}
+
+async function cargarUsuarios() {
+  const tbody = document.getElementById('tbody-usuarios');
+  tbody.replaceChildren();
+  try {
+    const response = await fetch('/api/usuarios');
+    const users = await response.json();
+    if (!response.ok) throw new Error(users.error || 'No fue posible consultar los usuarios.');
+    if (users.length === 0) {
+      addEmptyRow(tbody, 7, 'No hay usuarios registrados.');
+      return;
+    }
+    users.forEach(user => addDataRow(tbody, [
+      user.documento,
+      user.nombres,
+      user.apellidos,
+      user.telefono,
+      user.correo,
+      new Date(user.fecha_registro).toLocaleString('es-CO'),
+      user.estado
+    ]));
+  } catch (error) {
+    addEmptyRow(tbody, 7, 'No fue posible cargar los usuarios.');
+    mostrarToast(error.message || 'Error al cargar usuarios.');
+  }
+}
+
+async function registrarUsuario(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const message = document.getElementById('usuario-mensaje');
+  const submitButton = form.querySelector('button[type="submit"]');
+  const user = Object.fromEntries(new FormData(form).entries());
+  message.textContent = '';
+  submitButton.disabled = true;
+  try {
+    const response = await fetch('/api/usuarios', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(user)
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      message.textContent = result.error || 'No fue posible registrar el usuario.';
+      message.classList.add('error');
+      return;
+    }
+    form.reset();
+    message.textContent = result.mensaje;
+    message.classList.remove('error');
+    await cargarUsuarios();
+  } catch (error) {
+    message.textContent = 'No fue posible comunicarse con el servidor.';
+    message.classList.add('error');
+    mostrarToast(error.message || 'Error al registrar usuario.');
+  } finally {
+    submitButton.disabled = false;
+  }
+}
+
+async function cargarCeldas() {
+  const tbody = document.getElementById('tbody-celdas');
+  tbody.replaceChildren();
+  try {
+    const response = await fetch('/api/celdas');
+    const cells = await response.json();
+    if (!response.ok) throw new Error(cells.error || 'No fue posible consultar las celdas.');
+    if (cells.length === 0) {
+      addEmptyRow(tbody, 4, 'No hay celdas registradas.');
+      return;
+    }
+    cells.forEach(cell => addDataRow(tbody, [
+      cell.codigo,
+      cell.tipo,
+      cell.estado,
+      cell.ubicacion
+    ]));
+  } catch (error) {
+    addEmptyRow(tbody, 4, 'No fue posible cargar las celdas.');
+    mostrarToast(error.message || 'Error al cargar celdas.');
+  }
+}
+
+async function registrarCelda(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const message = document.getElementById('celda-mensaje');
+  const submitButton = form.querySelector('button[type="submit"]');
+  const cell = Object.fromEntries(new FormData(form).entries());
+  message.textContent = '';
+  submitButton.disabled = true;
+  try {
+    const response = await fetch('/api/celdas', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cell)
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      message.textContent = result.error || 'No fue posible registrar la celda.';
+      message.classList.add('error');
+      return;
+    }
+    form.reset();
+    message.textContent = result.mensaje;
+    message.classList.remove('error');
+    await cargarCeldas();
+    await cargarPatio();
+  } catch (error) {
+    message.textContent = 'No fue posible comunicarse con el servidor.';
+    message.classList.add('error');
+    mostrarToast(error.message || 'Error al registrar celda.');
+  } finally {
+    submitButton.disabled = false;
+  }
 }
 
 async function cargarPatio() {
@@ -84,31 +238,39 @@ function actualizarIndicadores(stats) {
 
 function renderizarCeldas(celdas, activos) {
   const contenedor = document.getElementById('grid-celdas');
-  contenedor.innerHTML = '';
+  contenedor.replaceChildren();
 
   celdas.forEach(cel => {
     const ocupante = activos.find(a => a.id_celda === cel.id_celda);
     const item = document.createElement('div');
     item.className = `cell-item ${cel.estado.toLowerCase()}`;
-
-    let contenidoPlaca = '';
     if (ocupante) {
-      contenidoPlaca = `<span class="cell-plate">${ocupante.placa}</span>`;
       item.onclick = () => abrirModalSalida(ocupante.id_acceso);
     } else {
       item.onclick = () => abrirModalEntradaConCelda(cel.id_celda);
     }
 
-    item.innerHTML = `
-      <div>
-        <div class="cell-code">${cel.codigo}</div>
-        <div class="cell-type">${cel.tipo} • ${cel.sector}</div>
-      </div>
-      <div>
-        ${contenidoPlaca}
-        <div class="cell-status-text">${cel.estado}</div>
-      </div>
-    `;
+    const details = document.createElement('div');
+    const code = document.createElement('div');
+    code.className = 'cell-code';
+    code.textContent = cel.codigo;
+    const type = document.createElement('div');
+    type.className = 'cell-type';
+    type.textContent = `${cel.tipo} • ${cel.sector}`;
+    details.append(code, type);
+
+    const status = document.createElement('div');
+    if (ocupante) {
+      const plate = document.createElement('span');
+      plate.className = 'cell-plate';
+      plate.textContent = ocupante.placa;
+      status.appendChild(plate);
+    }
+    const statusText = document.createElement('div');
+    statusText.className = 'cell-status-text';
+    statusText.textContent = cel.estado;
+    status.appendChild(statusText);
+    item.append(details, status);
     contenedor.appendChild(item);
   });
 }
@@ -128,15 +290,15 @@ function renderizarTablaActivos(activos) {
 
     let novedadesHtml = '<span style="color: var(--text-dim); font-size: 0.8rem;">Sin reporte</span>';
     if (a.novedades && a.novedades.length > 0) {
-      novedadesHtml = a.novedades.map(n => `<span class="badge badge-novedad" title="${n.descripcion}">${n.tipo}</span>`).join(' ');
+      novedadesHtml = a.novedades.map(n => `<span class="badge badge-novedad" title="${escapeHtml(n.descripcion)}">${escapeHtml(n.tipo)}</span>`).join(' ');
     }
 
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td><span class="plate-badge">${a.placa}</span></td>
-      <td><strong>${a.cliente}</strong><br><small style="color: var(--text-muted);">${a.telefono}</small></td>
-      <td>${a.tipo} - ${a.marca}</td>
-      <td><strong style="font-family: 'Space Mono';">${a.codigo_celda}</strong></td>
+      <td><span class="plate-badge">${escapeHtml(a.placa)}</span></td>
+      <td><strong>${escapeHtml(a.cliente)}</strong><br><small style="color: var(--text-muted);">${escapeHtml(a.telefono)}</small></td>
+      <td>${escapeHtml(a.tipo)} - ${escapeHtml(a.marca)}</td>
+      <td><strong style="font-family: 'Space Mono';">${escapeHtml(a.codigo_celda)}</strong></td>
       <td>${entradaDate.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}</td>
       <td>${tiempoEstadia}</td>
       <td>${novedadesHtml}</td>
@@ -219,7 +381,7 @@ async function verificarPlaca() {
     if (!res.ok) {
       box.classList.add('error');
       box.innerHTML = `
-        <div class="val-title">${data.mensaje || 'Validacion denegada'}</div>
+        <div class="val-title">${escapeHtml(data.mensaje || 'Validacion denegada')}</div>
         <div class="val-detail">No se puede autorizar el ingreso bajo modalidad de mensualidad.</div>
       `;
       btn.disabled = true;
@@ -231,21 +393,27 @@ async function verificarPlaca() {
     vehiculoValidado = data;
     box.classList.add('valido');
     box.innerHTML = `
-      <div class="val-title">Mensualidad Activa: ${data.usuario.nombres}</div>
+      <div class="val-title">Mensualidad Activa: ${escapeHtml(data.usuario.nombres)}</div>
       <div class="val-detail">
-        Vehiculo: <strong>${data.vehiculo.tipo} ${data.vehiculo.marca} ${data.vehiculo.modelo}</strong> (${data.vehiculo.color})<br>
-        Vigencia plan: <strong>${data.mensualidad.fecha_inicio} al ${data.mensualidad.fecha_fin}</strong>
+        Vehiculo: <strong>${escapeHtml(data.vehiculo.tipo)} ${escapeHtml(data.vehiculo.marca)} ${escapeHtml(data.vehiculo.modelo)}</strong> (${escapeHtml(data.vehiculo.color)})<br>
+        Vigencia plan: <strong>${escapeHtml(data.mensualidad.fecha_inicio)} al ${escapeHtml(data.mensualidad.fecha_fin)}</strong>
       </div>
     `;
 
     selCelda.disabled = false;
-    selCelda.innerHTML = '';
+    selCelda.replaceChildren();
     if (data.celdasDisponibles.length === 0) {
-      selCelda.innerHTML = `<option value="">No hay celdas disponibles para ${data.vehiculo.tipo}</option>`;
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = `No hay celdas disponibles para ${data.vehiculo.tipo}`;
+      selCelda.appendChild(option);
       btn.disabled = true;
     } else {
       data.celdasDisponibles.forEach(c => {
-        selCelda.innerHTML += `<option value="${c.id_celda}">Celda ${c.codigo} (${c.sector})</option>`;
+        const option = document.createElement('option');
+        option.value = String(c.id_celda);
+        option.textContent = `Celda ${c.codigo} (${c.sector})`;
+        selCelda.appendChild(option);
       });
       if (data.celdasDisponibles.some(c => c.id_celda === celdaPreseleccionada)) {
         selCelda.value = String(celdaPreseleccionada);
@@ -343,22 +511,22 @@ function abrirModalSalida(idAcceso) {
 
   let novedadesPrevias = '<p style="color: var(--text-dim); font-size: 0.85rem;">Ninguna observacion fisica registrada al ingreso.</p>';
   if (activo.novedades && activo.novedades.length > 0) {
-    novedadesPrevias = activo.novedades.map(n => `<div style="font-size: 0.85rem; margin-top: 0.3rem;"><strong style="color: var(--accent-amber);">${n.tipo}:</strong> ${n.descripcion}</div>`).join('');
+    novedadesPrevias = activo.novedades.map(n => `<div style="font-size: 0.85rem; margin-top: 0.3rem;"><strong style="color: var(--accent-amber);">${escapeHtml(n.tipo)}:</strong> ${escapeHtml(n.descripcion)}</div>`).join('');
   }
 
   cont.innerHTML = `
     <div class="summary-card">
       <div class="summary-row">
         <span>Vehiculo:</span>
-        <strong>${activo.placa} (${activo.tipo} ${activo.marca})</strong>
+        <strong>${escapeHtml(activo.placa)} (${escapeHtml(activo.tipo)} ${escapeHtml(activo.marca)})</strong>
       </div>
       <div class="summary-row">
         <span>Cliente Abonado:</span>
-        <strong>${activo.cliente}</strong>
+        <strong>${escapeHtml(activo.cliente)}</strong>
       </div>
       <div class="summary-row">
         <span>Celda Actual:</span>
-        <strong style="color: var(--accent-amber);">${activo.codigo_celda}</strong>
+        <strong style="color: var(--accent-amber);">${escapeHtml(activo.codigo_celda)}</strong>
       </div>
       <div class="summary-row">
         <span>Hora de Ingreso:</span>
@@ -383,7 +551,7 @@ function abrirModalSalida(idAcceso) {
     </div>
 
     <div style="font-size: 0.82rem; color: var(--status-available);">
-      Al confirmar, la celda <strong>${activo.codigo_celda}</strong> quedara inmediatamente DISPONIBLE.
+      Al confirmar, la celda <strong>${escapeHtml(activo.codigo_celda)}</strong> quedara inmediatamente DISPONIBLE.
     </div>
   `;
 
@@ -436,13 +604,13 @@ async function cargarMensualistas() {
       const badgeClase = m.estadoMensualidad === 'Vigente' ? 'badge-vigente' : 'badge-vencida';
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td><span class="plate-badge">${m.placa}</span></td>
-        <td><strong>${m.cliente}</strong></td>
-        <td>${m.documento}</td>
-        <td>${m.telefono}</td>
-        <td>${m.tipo} - ${m.marca} ${m.modelo} (${m.color})</td>
-        <td><span class="badge ${badgeClase}">${m.estadoMensualidad}</span></td>
-        <td>${m.fechaFin}</td>
+        <td><span class="plate-badge">${escapeHtml(m.placa)}</span></td>
+        <td><strong>${escapeHtml(m.cliente)}</strong></td>
+        <td>${escapeHtml(m.documento)}</td>
+        <td>${escapeHtml(m.telefono)}</td>
+        <td>${escapeHtml(m.tipo)} - ${escapeHtml(m.marca)} ${escapeHtml(m.modelo)} (${escapeHtml(m.color)})</td>
+        <td><span class="badge ${badgeClase}">${escapeHtml(m.estadoMensualidad)}</span></td>
+        <td>${escapeHtml(m.fechaFin)}</td>
       `;
       tbody.appendChild(tr);
     });
@@ -482,14 +650,14 @@ async function cargarHistorial() {
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td>#${h.id_acceso}</td>
-        <td><span class="plate-badge">${h.placa}</span></td>
-        <td>${h.cliente}</td>
-        <td><strong style="font-family: 'Space Mono';">${h.celda}</strong></td>
-        <td>${h.operador}</td>
+        <td><span class="plate-badge">${escapeHtml(h.placa)}</span></td>
+        <td>${escapeHtml(h.cliente)}</td>
+        <td><strong style="font-family: 'Space Mono';">${escapeHtml(h.celda)}</strong></td>
+        <td>${escapeHtml(h.operador)}</td>
         <td>${fechaEnt}</td>
         <td>${fechaSal}</td>
         <td>${mins}</td>
-        <td style="font-size: 0.8rem; color: var(--text-muted);">${novs}</td>
+        <td style="font-size: 0.8rem; color: var(--text-muted);">${escapeHtml(novs)}</td>
       `;
       tbody.appendChild(tr);
     });

@@ -46,6 +46,8 @@
       <button class="tab-btn active" id="tab-patio-btn" onclick="cambiarPestana('patio')">Patio en Vivo</button>
       <button class="tab-btn" id="tab-mensualistas-btn" onclick="cambiarPestana('mensualistas')">Abonados Registrados</button>
       <button class="tab-btn" id="tab-historial-btn" onclick="cambiarPestana('historial')">Auditoría / Historial</button>
+      <button class="tab-btn" id="tab-usuarios-btn" onclick="cambiarPestana('usuarios')">Gestión de Usuarios</button>
+      <button class="tab-btn" id="tab-celdas-btn" onclick="cambiarPestana('celdas')">Gestión de Celdas</button>
       <a href="/diagramas.html" target="_blank" class="tab-btn" style="text-decoration: none; color: var(--accent-amber);">Ver Diagramas Visuales ↗</a>
     </div>
 
@@ -167,6 +169,99 @@
       </div>
     </section>
 
+    <section id="vista-usuarios" class="view-panel">
+      <div class="panel-card">
+        <div class="card-header">
+          <div>
+            <h2>Registrar usuario</h2>
+            <p class="card-sub">Los usuarios nuevos se registran como Activos y la fecha se asigna automáticamente.</p>
+          </div>
+        </div>
+        <form id="form-usuario" class="management-form">
+          <label>Documento de identidad
+            <input name="documento_identidad" type="text" maxlength="40" autocomplete="off" required>
+          </label>
+          <label>Nombres
+            <input name="nombres" type="text" maxlength="100" autocomplete="given-name" required>
+          </label>
+          <label>Apellidos
+            <input name="apellidos" type="text" maxlength="100" autocomplete="family-name" required>
+          </label>
+          <label>Teléfono
+            <input name="telefono" type="tel" maxlength="30" autocomplete="tel" required>
+          </label>
+          <label>Correo electrónico
+            <input name="correo_electronico" type="email" maxlength="254" autocomplete="email" required>
+          </label>
+          <button class="btn-primary" type="submit">Registrar usuario</button>
+          <p id="usuario-mensaje" class="form-message" role="status" aria-live="polite"></p>
+        </form>
+      </div>
+      <div class="panel-card mt-4">
+        <div class="card-header">
+          <div>
+            <h2>Usuarios registrados</h2>
+            <p class="card-sub">Consulta de datos de contacto, fecha de registro y estado.</p>
+          </div>
+          <button class="btn-secondary" type="button" onclick="cargarUsuarios()">Actualizar lista</button>
+        </div>
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr><th>Documento</th><th>Nombres</th><th>Apellidos</th><th>Teléfono</th><th>Correo electrónico</th><th>Fecha de registro</th><th>Estado</th></tr>
+            </thead>
+            <tbody id="tbody-usuarios"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="vista-celdas" class="view-panel">
+      <div class="panel-card">
+        <div class="card-header">
+          <div>
+            <h2>Registrar celda</h2>
+            <p class="card-sub">La celda se crea con estado Disponible.</p>
+          </div>
+        </div>
+        <form id="form-celda" class="management-form">
+          <label>Código de celda
+            <input name="codigo_celda" type="text" maxlength="30" autocomplete="off" required>
+          </label>
+          <label>Tipo de vehículo permitido
+            <select name="tipo_permitido" required>
+              <option value="">Seleccione un tipo</option>
+              <option value="Automóvil">Automóvil</option>
+              <option value="Camioneta">Camioneta</option>
+              <option value="Motocicleta">Motocicleta</option>
+            </select>
+          </label>
+          <label>Ubicación o sector
+            <input name="ubicacion_sector" type="text" maxlength="100" required>
+          </label>
+          <button class="btn-primary" type="submit">Registrar celda</button>
+          <p id="celda-mensaje" class="form-message" role="status" aria-live="polite"></p>
+        </form>
+      </div>
+      <div class="panel-card mt-4">
+        <div class="card-header">
+          <div>
+            <h2>Celdas registradas</h2>
+            <p class="card-sub">Consulta de código, tipo permitido, estado y ubicación.</p>
+          </div>
+          <button class="btn-secondary" type="button" onclick="cargarCeldas()">Actualizar lista</button>
+        </div>
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr><th>Código</th><th>Tipo permitido</th><th>Estado</th><th>Ubicación o sector</th></tr>
+            </thead>
+            <tbody id="tbody-celdas"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
   </main>
 
   <footer class="app-footer">
@@ -186,7 +281,7 @@
         <h4 class="footer-col-title">&#128205; Información del Sistema</h4>
         <ul class="footer-list">
           <li><span class="footer-lbl">Módulo:</span> Control Operativo de Accesos y Patio</li>
-          <li><span class="footer-lbl">Versión:</span> Iteración 1 — Prototipo Funcional</li>
+          <li><span class="footer-lbl">Versión:</span> Iteraciones 1 y 2 — Prototipo funcional</li>
           <li><span class="footer-lbl">Estación:</span> Portería Principal</li>
         </ul>
       </div>
@@ -206,7 +301,7 @@
 
     <div class="footer-bottom">
       <p>&copy; 2025 Parqueadero <strong>Autos Colombia S.A.S.</strong> — Todos los derechos reservados.</p>
-      <p class="footer-course-tag">Proyecto académico · Ingeniería de Software · Iteración 1</p>
+      <p class="footer-course-tag">Proyecto académico · Ingeniería de Software · Iteraciones 1 y 2</p>
     </div>
   </footer>
 
@@ -286,5 +381,4 @@
   <script src="app.js"></script>
 </body>
 </html>
-
 
