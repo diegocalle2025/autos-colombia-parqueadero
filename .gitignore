@@ -17,3 +17,11 @@ src/public/header_logo.png
 src/public/logo.jpg
 src/public/primary_logo.jpg
 src/public/primary_logo.png
+
+# Archivos de entrega, capturas y temporales
+*.docx
+*.png
+*.jpg
+scratch_*/
+temp_*
+Iteracion_3_Casos_de_Uso.mdj

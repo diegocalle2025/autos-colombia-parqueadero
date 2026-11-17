@@ -1042,3 +1042,115 @@ body {
   }
 }
 
+/* ─── ITERACIÓN 3: ESTILOS DE GESTIÓN DE PAGOS Y RECIBOS DIGITALES ────────────── */
+.badge-confirmado {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--status-available);
+  border: 1px solid var(--status-available);
+}
+
+.badge-anulado {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--status-occupied);
+  border: 1px solid var(--status-occupied);
+}
+
+.badge-por-vencer {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--accent-amber);
+  border: 1px solid var(--accent-amber);
+}
+
+.btn-sm {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.payment-role-notice {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  font-style: italic;
+  margin-top: 0.6rem;
+}
+
+.payment-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: flex-end;
+}
+
+.upcoming-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  font-size: 0.88rem;
+}
+
+.modal-receipt {
+  max-width: 580px;
+}
+
+.receipt-box {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1.5rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.receipt-header {
+  text-align: center;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.8rem;
+}
+
+.receipt-table th,
+.receipt-table td {
+  padding: 0.5rem 0.2rem;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #modal-recibo-pago,
+  #modal-recibo-pago * {
+    visibility: visible;
+  }
+  #modal-recibo-pago {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: auto;
+    background: white !important;
+    display: block !important;
+    padding: 0 !important;
+  }
+  .modal-card {
+    border: none !important;
+    box-shadow: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  .modal-header,
+  .modal-footer {
+    display: none !important;
+  }
+  .receipt-box {
+    background: white !important;
+    color: black !important;
+    border: 1px solid #ccc !important;
+    box-shadow: none !important;
+  }
+  .receipt-box * {
+    color: black !important;
+  }
+}
+
+

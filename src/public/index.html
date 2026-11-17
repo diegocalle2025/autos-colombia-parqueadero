@@ -48,6 +48,7 @@
       <button class="tab-btn" id="tab-historial-btn" onclick="cambiarPestana('historial')">Auditoría / Historial</button>
       <button class="tab-btn" id="tab-usuarios-btn" onclick="cambiarPestana('usuarios')">Gestión de Usuarios</button>
       <button class="tab-btn" id="tab-celdas-btn" onclick="cambiarPestana('celdas')">Gestión de Celdas</button>
+      <button class="tab-btn" id="tab-pagos-btn" onclick="cambiarPestana('pagos')">Gestión de Pagos</button>
       <a href="/diagramas.html" target="_blank" class="tab-btn" style="text-decoration: none; color: var(--accent-amber);">Ver Diagramas Visuales ↗</a>
     </div>
 
@@ -262,6 +263,115 @@
       </div>
     </section>
 
+    <section id="vista-pagos" class="view-panel">
+      <div class="panel-card">
+        <div class="card-header">
+          <div>
+            <h2>Registrar pago de mensualidad</h2>
+            <p class="card-sub">La tarifa sugerida depende del tipo de vehículo. Cada pago cubre 30 días calendario.</p>
+          </div>
+        </div>
+        <form id="form-pago" class="management-form">
+          <label>Vehículo y titular
+            <select id="pago-placa" name="placa" required>
+              <option value="">Cargando vehículos...</option>
+            </select>
+          </label>
+          <label>Valor pagado (COP)
+            <input id="pago-valor" name="valor_pagado" type="number" min="1" step="1" required>
+          </label>
+          <label>Método de pago
+            <select name="metodo_pago" required>
+              <option value="">Seleccione un método</option>
+              <option value="Efectivo">Efectivo</option>
+              <option value="Transferencia">Transferencia</option>
+              <option value="Tarjeta">Tarjeta</option>
+            </select>
+          </label>
+          <label>Fecha de transacción
+            <input id="pago-fecha" name="fecha_transaccion" type="date" required>
+          </label>
+          <label>Operador responsable
+            <input name="operador" type="text" maxlength="100" required>
+          </label>
+          <label>Rol operativo
+            <select id="pago-rol" name="rol" required>
+              <option value="Operador de Portería">Operador de Portería</option>
+              <option value="Administrador">Administrador</option>
+            </select>
+          </label>
+          <label class="form-wide">Observaciones (opcional)
+            <input name="observaciones" type="text" maxlength="500">
+          </label>
+          <button class="btn-primary" type="submit">Registrar pago y generar recibo</button>
+          <p id="pago-mensaje" class="form-message" role="status" aria-live="polite"></p>
+        </form>
+        <p class="payment-role-notice">La selección de rol en este prototipo es funcional; el sistema aún no cuenta con inicio de sesión ni autorización técnica.</p>
+      </div>
+
+      <div class="panel-card mt-4">
+        <div class="card-header">
+          <div>
+            <h2>Historial de pagos</h2>
+            <p class="card-sub">Consulta por documento, placa, método de pago o fecha.</p>
+          </div>
+          <div class="history-filters payment-filters">
+            <label>Documento<input type="search" id="filtro-pago-documento"></label>
+            <label>Placa<input type="search" id="filtro-pago-placa" maxlength="7"></label>
+            <label>Método
+              <select id="filtro-pago-metodo">
+                <option value="">Todos</option>
+                <option value="Efectivo">Efectivo</option>
+                <option value="Transferencia">Transferencia</option>
+                <option value="Tarjeta">Tarjeta</option>
+              </select>
+            </label>
+            <label>Desde<input type="date" id="filtro-pago-desde"></label>
+            <label>Hasta<input type="date" id="filtro-pago-hasta"></label>
+            <button class="btn-secondary" type="button" onclick="cargarPagos()">Filtrar</button>
+            <button class="btn-secondary" type="button" onclick="limpiarFiltrosPagos()">Limpiar</button>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr><th>Recibo</th><th>Fecha</th><th>Usuario</th><th>Vehículo</th><th>Valor</th><th>Método</th><th>Estado</th><th>Vigencia</th><th>Operador</th><th>Acciones</th></tr>
+            </thead>
+            <tbody id="tbody-pagos"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel-card mt-4">
+        <div class="card-header">
+          <div>
+            <h2>Estado y vencimiento de mensualidades</h2>
+            <p class="card-sub">Consulta periodos vigentes, vencidos, cancelados y próximos a vencer.</p>
+          </div>
+          <div class="history-filters">
+            <label>Estado
+              <select id="filtro-mensualidad-estado">
+                <option value="">Todos</option>
+                <option value="Vigente">Vigente</option>
+                <option value="Vencida">Vencida</option>
+                <option value="Cancelada">Cancelada</option>
+              </select>
+            </label>
+            <label class="upcoming-filter"><input id="filtro-mensualidad-proximas" type="checkbox"> Próximas a vencer (5 días)</label>
+            <button class="btn-secondary" type="button" onclick="cargarMensualidades()">Consultar</button>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr><th>Documento</th><th>Usuario</th><th>Placa</th><th>Tipo</th><th>Periodo</th><th>Estado</th><th>Vence en</th></tr>
+            </thead>
+            <tbody id="tbody-mensualidades"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
   </main>
 
   <footer class="app-footer">
@@ -281,7 +391,7 @@
         <h4 class="footer-col-title">&#128205; Información del Sistema</h4>
         <ul class="footer-list">
           <li><span class="footer-lbl">Módulo:</span> Control Operativo de Accesos y Patio</li>
-          <li><span class="footer-lbl">Versión:</span> Iteraciones 1 y 2 — Prototipo funcional</li>
+          <li><span class="footer-lbl">Versión:</span> Iteraciones 1, 2 y 3 — Prototipo funcional</li>
           <li><span class="footer-lbl">Estación:</span> Portería Principal</li>
         </ul>
       </div>
@@ -301,7 +411,7 @@
 
     <div class="footer-bottom">
       <p>&copy; 2025 Parqueadero <strong>Autos Colombia S.A.S.</strong> — Todos los derechos reservados.</p>
-      <p class="footer-course-tag">Proyecto académico · Ingeniería de Software · Iteraciones 1 y 2</p>
+      <p class="footer-course-tag">Proyecto académico · Ingeniería de Software · Iteraciones 1, 2 y 3</p>
     </div>
   </footer>
 
@@ -373,6 +483,58 @@
         <button class="btn-secondary" onclick="cerrarModalSalida()">Volver</button>
         <button class="btn-danger" id="btn-confirmar-salida" onclick="guardarSalida()">Confirmar Salida y Liberar Celda</button>
       </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="modal-recibo-pago">
+    <div class="modal-card modal-receipt">
+      <div class="modal-header">
+        <h3>Comprobante Digital de Pago</h3>
+        <button class="btn-close" onclick="cerrarModalRecibo()">&times;</button>
+      </div>
+      <div class="modal-body" id="recibo-detalles"></div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="cerrarModalRecibo()">Cerrar</button>
+        <button class="btn-primary" onclick="imprimirRecibo()">&#128424; Imprimir Comprobante</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="modal-anular-pago">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Anular Registro de Pago</h3>
+        <button class="btn-close" onclick="cerrarModalAnular()">&times;</button>
+      </div>
+      <form id="form-anular-pago" onsubmit="confirmarAnulacionPago(event)">
+        <div class="modal-body">
+          <input type="hidden" id="anular-pago-id">
+          <div class="form-group">
+            <label>Folio del Pago</label>
+            <input type="text" id="anular-pago-folio" class="form-control" readonly>
+          </div>
+          <div class="form-group">
+            <label>Rol Autorizado</label>
+            <select id="anular-pago-rol" class="form-control" required>
+              <option value="Administrador">Administrador</option>
+              <option value="Operador de Portería">Operador de Portería (No autorizado)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Administrador Responsable</label>
+            <input type="text" id="anular-pago-operador" class="form-control" placeholder="Nombre completo del Administrador" required maxlength="100">
+          </div>
+          <div class="form-group">
+            <label>Motivo o Justificación Obligatoria</label>
+            <textarea id="anular-pago-motivo" class="form-control" rows="3" placeholder="Explique la causa justificada (error de digitación, inconsistencia bancaria, etc.)..." required></textarea>
+          </div>
+          <p class="field-hint" style="color: var(--status-occupied);">&#9888; Esta acción es irreversible: el pago cambiará a estado 'Anulado' y la mensualidad asociada pasará a 'Cancelada'. Se conserva la auditoría completa.</p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-secondary" onclick="cerrarModalAnular()">Cancelar</button>
+          <button type="submit" class="btn-danger">Confirmar Anulación de Pago</button>
+        </div>
+      </form>
     </div>
   </div>
 

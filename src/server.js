@@ -19,6 +19,12 @@ app.use(express.json({ limit: '32kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 const CELL_TYPES = new Set(['Automóvil', 'Camioneta', 'Motocicleta']);
+const PAYMENT_METHODS = new Set(['Efectivo', 'Transferencia', 'Tarjeta']);
+const VEHICLE_RATES = new Map([
+  ['Automóvil', 180000],
+  ['Camioneta', 210000],
+  ['Motocicleta', 90000]
+]);
 
 function getRequiredText(body, field, label, maxLength) {
   const value = body?.[field];
@@ -30,6 +36,36 @@ function getRequiredText(body, field, label, maxLength) {
     return { error: `${label} no puede superar ${maxLength} caracteres.` };
   }
   return { value: trimmedValue };
+}
+
+function isValidDateOnly(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().startsWith(value);
+}
+
+function addDays(date, days) {
+  const parsed = new Date(`${date}T00:00:00.000Z`);
+  parsed.setUTCDate(parsed.getUTCDate() + days);
+  return parsed.toISOString().slice(0, 10);
+}
+
+function getPaymentReceipt(paymentId) {
+  return database.prepare(`
+    SELECT p.id_pago, 'PAG-' || printf('%06d', p.id_pago) AS folio,
+           p.fecha_hora_emision, p.fecha_transaccion, p.valor_pagado,
+           p.metodo_pago, p.estado_pago, p.operador, p.observaciones,
+           p.anulado_por, p.fecha_hora_anulacion, p.motivo_anulacion,
+           u.documento_identidad AS documento,
+           u.nombres || ' ' || u.apellidos AS usuario,
+           p.placa, v.tipo_vehiculo AS tipo_vehiculo,
+           m.fecha_inicio, m.fecha_fin, m.id_mensualidad
+    FROM pagos p
+    JOIN usuarios u ON u.id_usuario = p.id_usuario
+    JOIN vehiculos v ON v.placa = p.placa
+    JOIN mensualidades m ON m.id_mensualidad = p.id_mensualidad
+    WHERE p.id_pago = ?
+  `).get(paymentId);
 }
 
 app.get('/api/usuarios', (req, res) => {
@@ -442,6 +478,284 @@ app.get('/api/mensualistas', (req, res) => {
     ORDER BY v.placa
   `).all();
   res.json(records);
+});
+
+app.get('/api/pagos/vehiculos', (req, res) => {
+  const vehicles = database.prepare(`
+    SELECT v.placa, v.tipo_vehiculo AS tipo, v.marca, v.modelo,
+           u.id_usuario, u.documento_identidad AS documento,
+           u.nombres || ' ' || u.apellidos AS usuario
+    FROM vehiculos v
+    JOIN usuarios u ON u.id_usuario = v.id_usuario
+    WHERE u.estado_usuario = 'Activo'
+    ORDER BY u.apellidos COLLATE NOCASE, u.nombres COLLATE NOCASE, v.placa
+  `).all();
+  res.json(vehicles);
+});
+
+app.get('/api/pagos/tarifa', (req, res) => {
+  const plate = String(req.query.placa || '').trim().toUpperCase();
+  if (!plate) return res.status(400).json({ error: 'La placa es obligatoria.' });
+  const vehicle = database.prepare(`
+    SELECT v.placa, v.tipo_vehiculo AS tipo, u.estado_usuario AS estado_usuario
+    FROM vehiculos v
+    JOIN usuarios u ON u.id_usuario = v.id_usuario
+    WHERE v.placa = ?
+  `).get(plate);
+  if (!vehicle) return res.status(404).json({ error: 'No se encontró el vehículo.' });
+  if (vehicle.estado_usuario !== 'Activo') {
+    return res.status(403).json({ error: 'El titular del vehículo se encuentra inactivo.' });
+  }
+  res.json({ placa: vehicle.placa, tipo: vehicle.tipo, valor_sugerido: VEHICLE_RATES.get(vehicle.tipo) });
+});
+
+app.get('/api/pagos', (req, res) => {
+  const conditions = [];
+  const parameters = [];
+  const document = String(req.query.documento || '').trim();
+  const plate = String(req.query.placa || '').trim().toUpperCase();
+  const method = String(req.query.metodo || '').trim();
+  const from = String(req.query.desde || '').trim();
+  const to = String(req.query.hasta || '').trim();
+  if ((from && !isValidDateOnly(from)) || (to && !isValidDateOnly(to)) || (from && to && from > to)) {
+    return res.status(400).json({ error: 'El rango de fechas no es válido.' });
+  }
+  if (method && !PAYMENT_METHODS.has(method)) {
+    return res.status(400).json({ error: 'El método de pago no está permitido.' });
+  }
+  if (document) {
+    conditions.push('u.documento_identidad LIKE ?');
+    parameters.push(`%${document}%`);
+  }
+  if (plate) {
+    conditions.push('p.placa LIKE ?');
+    parameters.push(`%${plate}%`);
+  }
+  if (method) {
+    conditions.push('p.metodo_pago = ?');
+    parameters.push(method);
+  }
+  if (from) {
+    conditions.push('date(p.fecha_transaccion) >= date(?)');
+    parameters.push(from);
+  }
+  if (to) {
+    conditions.push('date(p.fecha_transaccion) <= date(?)');
+    parameters.push(to);
+  }
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const payments = database.prepare(`
+    SELECT p.id_pago, 'PAG-' || printf('%06d', p.id_pago) AS folio,
+           p.fecha_transaccion, p.fecha_hora_emision, p.valor_pagado,
+           p.metodo_pago, p.estado_pago, p.operador, p.observaciones,
+           p.anulado_por, p.fecha_hora_anulacion, p.motivo_anulacion,
+           u.documento_identidad AS documento,
+           u.nombres || ' ' || u.apellidos AS usuario,
+           p.placa, v.tipo_vehiculo AS tipo_vehiculo,
+           m.fecha_inicio, m.fecha_fin
+    FROM pagos p
+    JOIN usuarios u ON u.id_usuario = p.id_usuario
+    JOIN vehiculos v ON v.placa = p.placa
+    JOIN mensualidades m ON m.id_mensualidad = p.id_mensualidad
+    ${where}
+    ORDER BY p.id_pago DESC
+  `).all(...parameters);
+  res.json(payments);
+});
+
+app.get('/api/mensualidades', (req, res) => {
+  const state = String(req.query.estado || '').trim();
+  const upcomingOnly = ['1', 'true'].includes(String(req.query.proximas || '').toLowerCase());
+  if (state && !['Vigente', 'Vencida', 'Cancelada'].includes(state)) {
+    return res.status(400).json({ error: 'El estado de mensualidad no está permitido.' });
+  }
+  const conditions = [];
+  const parameters = [];
+  if (state) {
+    conditions.push(`CASE
+      WHEN m.estado_mensualidad = 'Cancelada' THEN 'Cancelada'
+      WHEN date(m.fecha_fin) < date('now', 'localtime') THEN 'Vencida'
+      ELSE 'Vigente'
+    END = ?`);
+    parameters.push(state);
+  }
+  if (upcomingOnly) {
+    conditions.push(`m.estado_mensualidad != 'Cancelada'
+      AND date(m.fecha_fin) BETWEEN date('now', 'localtime')
+      AND date('now', 'localtime', '+5 days')`);
+  }
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const memberships = database.prepare(`
+    SELECT m.id_mensualidad, m.id_usuario, u.documento_identidad AS documento,
+           u.nombres || ' ' || u.apellidos AS usuario,
+           p.placa, v.tipo_vehiculo AS tipo_vehiculo,
+           m.fecha_inicio, m.fecha_fin, m.valor_pagado,
+           CASE
+             WHEN m.estado_mensualidad = 'Cancelada' THEN 'Cancelada'
+             WHEN date(m.fecha_fin) < date('now', 'localtime') THEN 'Vencida'
+             ELSE 'Vigente'
+           END AS estado,
+           CAST(julianday(date(m.fecha_fin)) - julianday(date('now', 'localtime')) AS INTEGER) AS dias_para_vencer
+    FROM mensualidades m
+    JOIN usuarios u ON u.id_usuario = m.id_usuario
+    LEFT JOIN pagos p ON p.id_mensualidad = m.id_mensualidad
+    LEFT JOIN vehiculos v ON v.placa = p.placa
+    ${where}
+    ORDER BY date(m.fecha_fin), m.id_mensualidad DESC
+  `).all(...parameters);
+  res.json(memberships.map(membership => ({
+    ...membership,
+    por_vencer: membership.estado === 'Vigente'
+      && membership.dias_para_vencer >= 0
+      && membership.dias_para_vencer <= 5
+  })));
+});
+
+app.get('/api/pagos/:id', (req, res) => {
+  const paymentId = Number(req.params.id);
+  if (!Number.isInteger(paymentId) || paymentId < 1) {
+    return res.status(400).json({ error: 'El identificador del pago no es válido.' });
+  }
+  const receipt = getPaymentReceipt(paymentId);
+  if (!receipt) return res.status(404).json({ error: 'No se encontró el pago.' });
+  res.json(receipt);
+});
+
+app.post('/api/pagos', (req, res) => {
+  const plate = String(req.body?.placa || '').trim().toUpperCase();
+  const amount = Number(req.body?.valor_pagado);
+  const method = String(req.body?.metodo_pago || '').trim();
+  const transactionDate = req.body?.fecha_transaccion;
+  const operator = String(req.body?.operador || '').trim();
+  const observations = req.body?.observaciones == null ? '' : String(req.body.observaciones).trim();
+
+  if (!plate || !Number.isSafeInteger(amount) || amount <= 0
+      || !PAYMENT_METHODS.has(method) || !isValidDateOnly(transactionDate)
+      || !operator || operator.length > 100 || observations.length > 500) {
+    return res.status(400).json({
+      error: 'Placa, monto positivo en pesos, método permitido, fecha válida y operador son obligatorios; las observaciones no pueden superar 500 caracteres.'
+    });
+  }
+
+  try {
+    database.exec('BEGIN IMMEDIATE');
+    const vehicle = database.prepare(`
+      SELECT v.placa, v.tipo_vehiculo, u.id_usuario, u.estado_usuario
+      FROM vehiculos v
+      JOIN usuarios u ON u.id_usuario = v.id_usuario
+      WHERE v.placa = ?
+    `).get(plate);
+    if (!vehicle) {
+      database.exec('ROLLBACK');
+      return res.status(404).json({ error: 'No se encontró el vehículo registrado.' });
+    }
+    if (vehicle.estado_usuario !== 'Activo') {
+      database.exec('ROLLBACK');
+      return res.status(403).json({ error: 'El titular del vehículo se encuentra inactivo.' });
+    }
+
+    const previousMembership = database.prepare(`
+      SELECT fecha_inicio, fecha_fin, estado_mensualidad
+      FROM mensualidades
+      WHERE id_usuario = ?
+      ORDER BY date(fecha_fin) DESC, id_mensualidad DESC
+      LIMIT 1
+    `).get(vehicle.id_usuario);
+    const membershipStart = previousMembership
+      && previousMembership.estado_mensualidad !== 'Cancelada'
+      && previousMembership.fecha_fin >= transactionDate
+      ? addDays(previousMembership.fecha_fin, 1)
+      : transactionDate;
+    const membershipEnd = addDays(membershipStart, 29);
+    const membershipResult = database.prepare(`
+      INSERT INTO mensualidades
+        (id_usuario, fecha_inicio, fecha_fin, valor_pagado, estado_mensualidad)
+      VALUES (?, ?, ?, ?, 'Vigente')
+    `).run(vehicle.id_usuario, membershipStart, membershipEnd, amount);
+    const membershipId = Number(membershipResult.lastInsertRowid);
+    const paymentResult = database.prepare(`
+      INSERT INTO pagos
+        (id_usuario, placa, id_mensualidad, valor_pagado, metodo_pago,
+         fecha_transaccion, operador, observaciones)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      vehicle.id_usuario,
+      plate,
+      membershipId,
+      amount,
+      method,
+      transactionDate,
+      operator,
+      observations || null
+    );
+    const paymentId = Number(paymentResult.lastInsertRowid);
+    database.exec('COMMIT');
+
+    const receipt = getPaymentReceipt(paymentId);
+    return res.status(201).json({
+      mensaje: 'Pago registrado correctamente.',
+      pago: receipt,
+      mensualidad: {
+        id_mensualidad: membershipId,
+        fecha_inicio: membershipStart,
+        fecha_fin: membershipEnd,
+        estado: 'Vigente'
+      }
+    });
+  } catch (error) {
+    if (database.isTransaction) database.exec('ROLLBACK');
+    console.error('Error al registrar pago:', error.message);
+    return res.status(500).json({ error: 'No fue posible registrar el pago.' });
+  }
+});
+
+app.post('/api/pagos/:id/anular', (req, res) => {
+  const paymentId = Number(req.params.id);
+  const role = String(req.body?.rol || '').trim();
+  const operator = String(req.body?.operador || '').trim();
+  const reason = String(req.body?.motivo || '').trim();
+  if (!Number.isInteger(paymentId) || paymentId < 1 || !operator || operator.length > 100 || !reason) {
+    return res.status(400).json({ error: 'Identificador, administrador responsable y motivo de anulación son obligatorios.' });
+  }
+  if (role !== 'Administrador') {
+    return res.status(403).json({ error: 'Solo el rol Administrador puede anular pagos.' });
+  }
+
+  try {
+    database.exec('BEGIN IMMEDIATE');
+    const payment = database.prepare(`
+      SELECT id_pago, id_mensualidad, estado_pago
+      FROM pagos WHERE id_pago = ?
+    `).get(paymentId);
+    if (!payment) {
+      database.exec('ROLLBACK');
+      return res.status(404).json({ error: 'No se encontró el pago.' });
+    }
+    if (payment.estado_pago !== 'Confirmado') {
+      database.exec('ROLLBACK');
+      return res.status(409).json({ error: 'El pago ya fue anulado y no se puede modificar.' });
+    }
+    const now = new Date().toISOString();
+    database.prepare(`
+      UPDATE pagos
+      SET estado_pago = 'Anulado', anulado_por = ?, fecha_hora_anulacion = ?,
+          motivo_anulacion = ?
+      WHERE id_pago = ?
+    `).run(operator, now, reason, paymentId);
+    database.prepare(`
+      UPDATE mensualidades SET estado_mensualidad = 'Cancelada'
+      WHERE id_mensualidad = ?
+    `).run(payment.id_mensualidad);
+    database.exec('COMMIT');
+    return res.json({
+      mensaje: 'Pago anulado correctamente.',
+      pago: getPaymentReceipt(paymentId)
+    });
+  } catch (error) {
+    if (database.isTransaction) database.exec('ROLLBACK');
+    console.error('Error al anular pago:', error.message);
+    return res.status(500).json({ error: 'No fue posible anular el pago.' });
+  }
 });
 
 app.get('/api/health', (req, res) => {

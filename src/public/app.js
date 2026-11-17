@@ -74,11 +74,30 @@ function cambiarPestana(nombre) {
   if (nombre === 'historial') cargarHistorial();
   if (nombre === 'usuarios') cargarUsuarios();
   if (nombre === 'celdas') cargarCeldas();
+  if (nombre === 'pagos') {
+    cargarVehiculosPagos();
+    cargarPagos();
+    cargarMensualidades();
+  }
 }
 
 function configurarGestion() {
-  document.getElementById('form-usuario').addEventListener('submit', registrarUsuario);
-  document.getElementById('form-celda').addEventListener('submit', registrarCelda);
+  const formUsuario = document.getElementById('form-usuario');
+  if (formUsuario) formUsuario.addEventListener('submit', registrarUsuario);
+
+  const formCelda = document.getElementById('form-celda');
+  if (formCelda) formCelda.addEventListener('submit', registrarCelda);
+
+  const formPago = document.getElementById('form-pago');
+  if (formPago) formPago.addEventListener('submit', registrarPago);
+
+  const selPlaca = document.getElementById('pago-placa');
+  if (selPlaca) selPlaca.addEventListener('change', actualizarTarifaSugerida);
+
+  const inpFechaPago = document.getElementById('pago-fecha');
+  if (inpFechaPago && !inpFechaPago.value) {
+    inpFechaPago.value = new Date().toISOString().slice(0, 10);
+  }
 }
 
 function addEmptyRow(tbody, columnCount, message) {
@@ -680,4 +699,431 @@ function mostrarToast(mensaje) {
   setTimeout(() => {
     toast.classList.remove('show');
   }, 3500);
+}
+
+/* ==========================================================================
+   ITERACIÓN 3: GESTIÓN INTEGRAL DE PAGOS Y MENSUALIDADES
+   ========================================================================== */
+
+let vehiculosPagosCache = [];
+
+async function cargarVehiculosPagos() {
+  const sel = document.getElementById('pago-placa');
+  if (!sel) return;
+  try {
+    const res = await fetch('/api/pagos/vehiculos');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'No fue posible cargar vehículos.');
+    vehiculosPagosCache = data;
+    sel.innerHTML = '';
+    if (data.length === 0) {
+      sel.innerHTML = '<option value="">No hay vehículos registrados</option>';
+      return;
+    }
+    sel.innerHTML = '<option value="">-- Seleccione un vehículo --</option>' +
+      data.map(v => `<option value="${escapeHtml(v.placa)}">${escapeHtml(v.placa)} - ${escapeHtml(v.titular)} (${escapeHtml(v.tipo)} ${escapeHtml(v.marca || '')})</option>`).join('');
+    
+    if (sel.value) {
+      await actualizarTarifaSugerida();
+    }
+  } catch (err) {
+    sel.innerHTML = '<option value="">Error al cargar vehículos</option>';
+    mostrarToast(err.message || 'Error al cargar lista de vehículos');
+  }
+}
+
+async function actualizarTarifaSugerida() {
+  const selPlaca = document.getElementById('pago-placa');
+  const inputValor = document.getElementById('pago-valor');
+  if (!selPlaca || !inputValor) return;
+  const placa = selPlaca.value;
+  if (!placa) {
+    inputValor.value = '';
+    return;
+  }
+  try {
+    const res = await fetch(`/api/pagos/tarifa?placa=${encodeURIComponent(placa)}`);
+    const data = await res.json();
+    if (res.ok && data.tarifa) {
+      inputValor.value = data.tarifa;
+    }
+  } catch (err) {
+    console.error('No fue posible consultar tarifa:', err);
+  }
+}
+
+async function registrarPago(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const submitBtn = form.querySelector('button[type="submit"]');
+  const msgEl = document.getElementById('pago-mensaje');
+  msgEl.textContent = '';
+  msgEl.className = 'form-message';
+
+  const formData = new FormData(form);
+  const payload = Object.fromEntries(formData.entries());
+
+  if (!payload.placa) {
+    msgEl.textContent = 'Debe seleccionar un vehículo.';
+    msgEl.classList.add('error');
+    return;
+  }
+  if (!payload.valor_pagado || Number(payload.valor_pagado) <= 0) {
+    msgEl.textContent = 'El valor pagado debe ser mayor a cero.';
+    msgEl.classList.add('error');
+    return;
+  }
+  if (!payload.metodo_pago) {
+    msgEl.textContent = 'Seleccione un método de pago válido.';
+    msgEl.classList.add('error');
+    return;
+  }
+  if (!payload.fecha_transaccion) {
+    msgEl.textContent = 'Indique la fecha de transacción.';
+    msgEl.classList.add('error');
+    return;
+  }
+
+  submitBtn.disabled = true;
+  try {
+    const res = await fetch('/api/pagos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const result = await res.json();
+    if (!res.ok) {
+      msgEl.textContent = result.error || 'No fue posible registrar el pago.';
+      msgEl.classList.add('error');
+      mostrarToast(result.error || 'Error al registrar pago');
+      return;
+    }
+
+    msgEl.textContent = `Pago registrado exitosamente. Recibo: ${result.pago.numero_recibo}`;
+    msgEl.classList.remove('error');
+    mostrarToast(`Pago registrado con éxito (Folio: ${result.pago.numero_recibo})`);
+
+    form.reset();
+    const inpFecha = document.getElementById('pago-fecha');
+    if (inpFecha) inpFecha.value = new Date().toISOString().slice(0, 10);
+
+    await Promise.all([
+      cargarPagos(),
+      cargarMensualidades(),
+      cargarMensualistas()
+    ]);
+
+    mostrarReciboPago(result.pago);
+  } catch (err) {
+    msgEl.textContent = 'Error de comunicación con el servidor.';
+    msgEl.classList.add('error');
+    mostrarToast('Error de red al procesar el pago.');
+  } finally {
+    submitBtn.disabled = false;
+  }
+}
+
+function mostrarReciboPago(pago) {
+  const modal = document.getElementById('modal-recibo-pago');
+  const contenedor = document.getElementById('recibo-detalles');
+  if (!modal || !contenedor) return;
+
+  const fechaTx = pago.fecha_pago ? new Date(pago.fecha_pago).toLocaleString('es-CO') : new Date().toLocaleString('es-CO');
+  const valorFormateado = Number(pago.valor_pagado).toLocaleString('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
+  const badgeClase = pago.estado === 'Confirmado' ? 'badge-confirmado' : 'badge-anulado';
+
+  contenedor.innerHTML = `
+    <div class="receipt-box" id="printable-receipt">
+      <div class="receipt-header">
+        <h4 style="margin: 0; font-size: 1.2rem; font-weight: 700; color: var(--accent-blue);">PARQUEADERO AUTOS COLOMBIA</h4>
+        <p style="margin: 0.2rem 0; font-size: 0.85rem; color: var(--text-dim);">NIT: 900.123.456-7 &bull; Régimen Común</p>
+        <p style="margin: 0.1rem 0; font-size: 0.8rem; color: var(--text-dim);">Calle 50 # 45-20, Medellín &bull; Tel: (604) 444-5566</p>
+        <div style="margin-top: 0.8rem; padding: 0.4rem; background: var(--bg-card-alt); border-radius: 6px; border: 1px dashed var(--border-color);">
+          <strong style="font-size: 1.05rem; letter-spacing: 1px;">RECIBO OFICIAL N° ${escapeHtml(pago.numero_recibo)}</strong>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; margin: 1rem 0; font-size: 0.88rem;">
+        <div>
+          <span style="color: var(--text-dim); display: block; font-size: 0.78rem;">Fecha y Hora:</span>
+          <strong>${fechaTx}</strong>
+        </div>
+        <div>
+          <span style="color: var(--text-dim); display: block; font-size: 0.78rem;">Estado del Pago:</span>
+          <span class="badge ${badgeClase}">${escapeHtml(pago.estado)}</span>
+        </div>
+        <div>
+          <span style="color: var(--text-dim); display: block; font-size: 0.78rem;">Titular / Cliente:</span>
+          <strong>${escapeHtml(pago.usuario_nombre || 'N/A')}</strong>
+        </div>
+        <div>
+          <span style="color: var(--text-dim); display: block; font-size: 0.78rem;">Documento / NIT:</span>
+          <span>${escapeHtml(pago.documento_usuario || 'N/A')}</span>
+        </div>
+        <div>
+          <span style="color: var(--text-dim); display: block; font-size: 0.78rem;">Vehículo amparado:</span>
+          <span class="plate-badge">${escapeHtml(pago.placa)}</span> (${escapeHtml(pago.tipo_vehiculo || 'Vehículo')})
+        </div>
+        <div>
+          <span style="color: var(--text-dim); display: block; font-size: 0.78rem;">Método de Pago:</span>
+          <strong>${escapeHtml(pago.metodo_pago)}</strong>
+        </div>
+      </div>
+
+      <table class="receipt-table" style="width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.88rem;">
+        <thead>
+          <tr style="border-bottom: 2px solid var(--border-color); text-align: left;">
+            <th style="padding: 0.4rem 0;">Concepto</th>
+            <th style="padding: 0.4rem 0; text-align: center;">Periodo Amparado</th>
+            <th style="padding: 0.4rem 0; text-align: right;">Total COP</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom: 1px solid var(--border-color);">
+            <td style="padding: 0.6rem 0;">Mensualidad Servicio de Parqueadero (30 días)</td>
+            <td style="padding: 0.6rem 0; text-align: center; font-size: 0.82rem;">${escapeHtml(pago.fecha_inicio)} al ${escapeHtml(pago.fecha_fin)}</td>
+            <td style="padding: 0.6rem 0; text-align: right; font-weight: 600;">${valorFormateado}</td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr>
+            <th colspan="2" style="padding: 0.8rem 0; text-align: right; font-size: 1rem;">TOTAL CANCELADO:</th>
+            <th style="padding: 0.8rem 0; text-align: right; font-size: 1.15rem; color: var(--accent-emerald);">${valorFormateado}</th>
+          </tr>
+        </tfoot>
+      </table>
+
+      ${pago.estado === 'Anulado' ? `
+        <div style="background: rgba(239, 68, 68, 0.1); border-left: 4px solid var(--status-occupied); padding: 0.6rem; margin: 0.8rem 0; border-radius: 4px; font-size: 0.85rem;">
+          <strong style="color: var(--status-occupied); display: block;">&#9888; REGISTRO ANULADO</strong>
+          <div><strong>Motivo:</strong> ${escapeHtml(pago.motivo_anulacion || 'Sin motivo')}</div>
+          <div><strong>Anulado por:</strong> ${escapeHtml(pago.anulado_por || 'Administrador')} el ${escapeHtml(pago.fecha_anulacion || '')}</div>
+        </div>
+      ` : ''}
+
+      <div style="font-size: 0.78rem; color: var(--text-dim); margin-top: 1rem; border-top: 1px dashed var(--border-color); padding-top: 0.6rem; text-align: center;">
+        <p style="margin: 0.2rem 0;">Operador emisor: <strong>${escapeHtml(pago.operador)}</strong></p>
+        <p style="margin: 0.2rem 0;">Este documento constituye comprobante válido de pago de mensualidad.</p>
+        <p style="margin: 0.2rem 0;">¡Gracias por confiar en Autos Colombia!</p>
+      </div>
+    </div>
+  `;
+
+  modal.classList.add('open');
+}
+
+function cerrarModalRecibo() {
+  const modal = document.getElementById('modal-recibo-pago');
+  if (modal) modal.classList.remove('open');
+}
+
+function imprimirRecibo() {
+  window.print();
+}
+
+async function cargarPagos() {
+  const tbody = document.getElementById('tbody-pagos');
+  if (!tbody) return;
+  tbody.replaceChildren();
+
+  const documento = document.getElementById('filtro-pago-documento')?.value.trim() || '';
+  const placa = document.getElementById('filtro-pago-placa')?.value.trim() || '';
+  const metodo = document.getElementById('filtro-pago-metodo')?.value || '';
+  const desde = document.getElementById('filtro-pago-desde')?.value || '';
+  const hasta = document.getElementById('filtro-pago-hasta')?.value || '';
+
+  const params = new URLSearchParams();
+  if (documento) params.set('documento', documento);
+  if (placa) params.set('placa', placa);
+  if (metodo) params.set('metodo', metodo);
+  if (desde) params.set('desde', desde);
+  if (hasta) params.set('hasta', hasta);
+
+  try {
+    const res = await fetch(`/api/pagos?${params.toString()}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'No fue posible consultar pagos.');
+
+    if (data.length === 0) {
+      addEmptyRow(tbody, 10, 'No se encontraron pagos con los criterios seleccionados.');
+      return;
+    }
+
+    data.forEach(p => {
+      const fechaTx = p.fecha_pago ? new Date(p.fecha_pago).toLocaleString('es-CO') : '-';
+      const valorFmt = Number(p.valor_pagado).toLocaleString('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
+      const badgeClase = p.estado === 'Confirmado' ? 'badge-confirmado' : 'badge-anulado';
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong style="font-family: 'Space Mono', monospace; font-size: 0.88rem;">${escapeHtml(p.numero_recibo)}</strong></td>
+        <td style="font-size: 0.84rem;">${fechaTx}</td>
+        <td><strong>${escapeHtml(p.usuario_nombre || 'N/A')}</strong><br><span style="font-size: 0.78rem; color: var(--text-dim);">${escapeHtml(p.documento_usuario || '')}</span></td>
+        <td><span class="plate-badge">${escapeHtml(p.placa)}</span><br><span style="font-size: 0.78rem; color: var(--text-dim);">${escapeHtml(p.tipo_vehiculo || '')}</span></td>
+        <td style="font-weight: 600; color: var(--accent-emerald);">${valorFmt}</td>
+        <td>${escapeHtml(p.metodo_pago)}</td>
+        <td><span class="badge ${badgeClase}">${escapeHtml(p.estado)}</span></td>
+        <td style="font-size: 0.82rem;">${escapeHtml(p.fecha_inicio)} al ${escapeHtml(p.fecha_fin)}</td>
+        <td style="font-size: 0.82rem;">${escapeHtml(p.operador)}</td>
+        <td>
+          <div style="display: flex; gap: 0.3rem;">
+            <button class="btn-sm btn-secondary" title="Ver e Imprimir Comprobante" onclick="verReciboPorId(${p.id_pago})">&#128196; Recibo</button>
+            ${p.estado === 'Confirmado' ? `
+              <button class="btn-sm btn-danger" title="Anular Pago (Solo Administrador)" onclick="abrirModalAnularPago(${p.id_pago}, '${escapeHtml(p.numero_recibo)}')">&#10006; Anular</button>
+            ` : `
+              <span class="badge badge-anulado" title="Motivo: ${escapeHtml(p.motivo_anulacion || '')}">Anulado</span>
+            `}
+          </div>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  } catch (err) {
+    addEmptyRow(tbody, 10, 'No fue posible cargar el historial de pagos.');
+    mostrarToast(err.message || 'Error al cargar pagos');
+  }
+}
+
+async function verReciboPorId(idPago) {
+  try {
+    const res = await fetch(`/api/pagos/${idPago}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'No se encontró el recibo.');
+    mostrarReciboPago(data);
+  } catch (err) {
+    mostrarToast(err.message || 'Error al consultar recibo');
+  }
+}
+
+function limpiarFiltrosPagos() {
+  const doc = document.getElementById('filtro-pago-documento');
+  const pla = document.getElementById('filtro-pago-placa');
+  const met = document.getElementById('filtro-pago-metodo');
+  const des = document.getElementById('filtro-pago-desde');
+  const has = document.getElementById('filtro-pago-hasta');
+  if (doc) doc.value = '';
+  if (pla) pla.value = '';
+  if (met) met.value = '';
+  if (des) des.value = '';
+  if (has) has.value = '';
+  cargarPagos();
+}
+
+function abrirModalAnularPago(idPago, folio) {
+  const modal = document.getElementById('modal-anular-pago');
+  if (!modal) return;
+  document.getElementById('anular-pago-id').value = idPago;
+  document.getElementById('anular-pago-folio').value = folio;
+  document.getElementById('anular-pago-motivo').value = '';
+  document.getElementById('anular-pago-operador').value = '';
+  document.getElementById('anular-pago-rol').value = 'Administrador';
+  modal.classList.add('open');
+}
+
+function cerrarModalAnular() {
+  const modal = document.getElementById('modal-anular-pago');
+  if (modal) modal.classList.remove('open');
+}
+
+async function confirmarAnulacionPago(event) {
+  event.preventDefault();
+  const idPago = document.getElementById('anular-pago-id').value;
+  const rol = document.getElementById('anular-pago-rol').value;
+  const operador = document.getElementById('anular-pago-operador').value.trim();
+  const motivo = document.getElementById('anular-pago-motivo').value.trim();
+
+  if (rol !== 'Administrador') {
+    alert('Operación denegada: Solo el usuario con rol Administrador tiene autorización para anular registros de pago.');
+    return;
+  }
+  if (!motivo) {
+    alert('Debe suministrar una justificación o motivo claro para la anulación.');
+    return;
+  }
+  if (!operador) {
+    alert('Debe indicar el nombre del administrador responsable.');
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/pagos/${idPago}/anular`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rol, operador, motivo })
+    });
+    const result = await res.json();
+    if (!res.ok) {
+      alert(result.error || 'No fue posible anular el pago.');
+      return;
+    }
+    cerrarModalAnular();
+    mostrarToast('Pago anulado y mensualidad cancelada exitosamente.');
+    await Promise.all([
+      cargarPagos(),
+      cargarMensualidades(),
+      cargarMensualistas()
+    ]);
+  } catch (err) {
+    alert('Error al comunicarse con el servidor para anular el pago.');
+  }
+}
+
+async function cargarMensualidades() {
+  const tbody = document.getElementById('tbody-mensualidades');
+  if (!tbody) return;
+  tbody.replaceChildren();
+
+  const estado = document.getElementById('filtro-mensualidad-estado')?.value || '';
+  const proximas = document.getElementById('filtro-mensualidad-proximas')?.checked || false;
+
+  const params = new URLSearchParams();
+  if (estado) params.set('estado', estado);
+  if (proximas) params.set('proximas', 'true');
+
+  try {
+    const res = await fetch(`/api/mensualidades?${params.toString()}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'No fue posible consultar mensualidades.');
+
+    if (data.length === 0) {
+      addEmptyRow(tbody, 7, 'No se encontraron mensualidades con los filtros indicados.');
+      return;
+    }
+
+    data.forEach(m => {
+      let badgeClase = 'badge-vigente';
+      if (m.estado === 'Vencida') badgeClase = 'badge-vencida';
+      else if (m.estado === 'Cancelada') badgeClase = 'badge-anulado';
+
+      let textoVencimiento = '-';
+      if (m.dias_restantes != null) {
+        if (m.dias_restantes > 0) {
+          if (m.dias_restantes <= 5) {
+            textoVencimiento = `<span class="badge badge-por-vencer">En ${m.dias_restantes} día(s)</span>`;
+          } else {
+            textoVencimiento = `${m.dias_restantes} días`;
+          }
+        } else if (m.dias_restantes === 0) {
+          textoVencimiento = `<span class="badge badge-vencida">Vence hoy</span>`;
+        } else {
+          textoVencimiento = `<span style="color: var(--status-occupied); font-size: 0.8rem;">Vencida hace ${Math.abs(m.dias_restantes)} día(s)</span>`;
+        }
+      }
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${escapeHtml(m.documento_usuario || '')}</td>
+        <td><strong>${escapeHtml(m.usuario_nombre || 'N/A')}</strong></td>
+        <td><span class="plate-badge">${escapeHtml(m.placa)}</span></td>
+        <td>${escapeHtml(m.tipo_vehiculo || '')}</td>
+        <td style="font-size: 0.84rem;">${escapeHtml(m.fecha_inicio)} al ${escapeHtml(m.fecha_fin)}</td>
+        <td><span class="badge ${badgeClase}">${escapeHtml(m.estado)}</span></td>
+        <td>${textoVencimiento}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  } catch (err) {
+    addEmptyRow(tbody, 7, 'No fue posible cargar el estado de mensualidades.');
+    mostrarToast(err.message || 'Error al cargar mensualidades');
+  }
 }

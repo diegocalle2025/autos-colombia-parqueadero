@@ -18,8 +18,33 @@ CREATE TABLE IF NOT EXISTS mensualidades (
     fecha_fin TEXT NOT NULL,
     valor_pagado NUMERIC NOT NULL CHECK (valor_pagado > 0),
     estado_mensualidad TEXT NOT NULL DEFAULT 'Vigente' CHECK (estado_mensualidad IN ('Vigente', 'Vencida', 'Cancelada')),
-    CHECK (fecha_fin >= fecha_inicio),
+    CHECK (fecha_fin > fecha_inicio),
     FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS pagos (
+    id_pago INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_usuario INTEGER NOT NULL,
+    placa TEXT NOT NULL,
+    id_mensualidad INTEGER NOT NULL UNIQUE,
+    valor_pagado INTEGER NOT NULL CHECK (valor_pagado > 0),
+    metodo_pago TEXT NOT NULL CHECK (metodo_pago IN ('Efectivo', 'Transferencia', 'Tarjeta')),
+    fecha_transaccion TEXT NOT NULL,
+    fecha_hora_emision TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    operador TEXT NOT NULL CHECK (length(trim(operador)) > 0),
+    observaciones TEXT,
+    estado_pago TEXT NOT NULL DEFAULT 'Confirmado' CHECK (estado_pago IN ('Confirmado', 'Anulado')),
+    anulado_por TEXT,
+    fecha_hora_anulacion TEXT,
+    motivo_anulacion TEXT,
+    CHECK (
+        (estado_pago = 'Confirmado' AND anulado_por IS NULL AND fecha_hora_anulacion IS NULL AND motivo_anulacion IS NULL)
+        OR
+        (estado_pago = 'Anulado' AND length(trim(anulado_por)) > 0 AND fecha_hora_anulacion IS NOT NULL AND length(trim(motivo_anulacion)) > 0)
+    ),
+    FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE RESTRICT,
+    FOREIGN KEY (placa) REFERENCES vehiculos(placa) ON DELETE RESTRICT,
+    FOREIGN KEY (id_mensualidad) REFERENCES mensualidades(id_mensualidad) ON DELETE RESTRICT
 );
 
 CREATE TABLE IF NOT EXISTS vehiculos (
@@ -66,6 +91,9 @@ CREATE TABLE IF NOT EXISTS novedades_vehiculo (
 );
 
 CREATE INDEX IF NOT EXISTS idx_mensualidades_usuario_vigencia ON mensualidades(id_usuario, estado_mensualidad, fecha_inicio, fecha_fin);
+CREATE INDEX IF NOT EXISTS idx_pagos_fecha ON pagos(fecha_transaccion, id_pago);
+CREATE INDEX IF NOT EXISTS idx_pagos_usuario_fecha ON pagos(id_usuario, fecha_transaccion);
+CREATE INDEX IF NOT EXISTS idx_pagos_placa_fecha ON pagos(placa, fecha_transaccion);
 CREATE INDEX IF NOT EXISTS idx_vehiculos_usuario ON vehiculos(id_usuario);
 CREATE INDEX IF NOT EXISTS idx_accesos_placa_fecha ON registros_acceso(placa, fecha_hora_entrada);
 CREATE INDEX IF NOT EXISTS idx_accesos_estado_fecha ON registros_acceso(estado_acceso, fecha_hora_entrada);
@@ -98,6 +126,47 @@ BEGIN
     SELECT RAISE(ABORT, 'Las novedades registradas son inmutables');
 END;
 
+CREATE TRIGGER IF NOT EXISTS trg_validar_vigencia_mensualidad_insert
+BEFORE INSERT ON mensualidades
+WHEN date(NEW.fecha_fin) <= date(NEW.fecha_inicio)
+BEGIN
+    SELECT RAISE(ABORT, 'La fecha de fin debe ser posterior a la fecha de inicio');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_validar_vigencia_mensualidad_update
+BEFORE UPDATE OF fecha_inicio, fecha_fin ON mensualidades
+WHEN date(NEW.fecha_fin) <= date(NEW.fecha_inicio)
+BEGIN
+    SELECT RAISE(ABORT, 'La fecha de fin debe ser posterior a la fecha de inicio');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_no_borrar_pagos
+BEFORE DELETE ON pagos
+BEGIN
+    SELECT RAISE(ABORT, 'Los pagos registrados son inmutables');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_anular_pago_sin_modificar_historial
+BEFORE UPDATE ON pagos
+WHEN OLD.estado_pago = 'Anulado'
+  OR NEW.estado_pago != 'Anulado'
+  OR NEW.id_pago != OLD.id_pago
+  OR NEW.id_usuario != OLD.id_usuario
+  OR NEW.placa != OLD.placa
+  OR NEW.id_mensualidad != OLD.id_mensualidad
+  OR NEW.valor_pagado != OLD.valor_pagado
+  OR NEW.metodo_pago != OLD.metodo_pago
+  OR NEW.fecha_transaccion != OLD.fecha_transaccion
+  OR NEW.fecha_hora_emision != OLD.fecha_hora_emision
+  OR NEW.operador != OLD.operador
+  OR COALESCE(NEW.observaciones, '') != COALESCE(OLD.observaciones, '')
+  OR length(trim(COALESCE(NEW.anulado_por, ''))) = 0
+  OR NEW.fecha_hora_anulacion IS NULL
+  OR length(trim(COALESCE(NEW.motivo_anulacion, ''))) = 0
+BEGIN
+    SELECT RAISE(ABORT, 'Un pago solo puede anularse con datos de auditoria y no puede modificarse');
+END;
+
 INSERT OR IGNORE INTO usuarios (id_usuario, documento_identidad, nombres, apellidos, telefono, correo_electronico) VALUES
 (1, '1020304050', 'Carlos', 'Ramirez Gomez', '3104567890', 'carlos.ramirez@email.com'),
 (2, '1030405060', 'Diana', 'Restrepo Osorio', '3157891234', 'diana.restrepo@email.com'),
@@ -105,10 +174,10 @@ INSERT OR IGNORE INTO usuarios (id_usuario, documento_identidad, nombres, apelli
 (4, '1050607080', 'Laura', 'Quintero', '3209876543', 'laura.quintero@email.com');
 
 INSERT OR IGNORE INTO mensualidades (id_mensualidad, id_usuario, fecha_inicio, fecha_fin, valor_pagado, estado_mensualidad) VALUES
-(1, 1, '2026-10-01', '2026-11-01', 180000, 'Vigente'),
-(2, 2, '2026-10-05', '2026-11-05', 210000, 'Vigente'),
-(3, 3, '2026-09-01', '2026-10-01', 90000, 'Vigente'),
-(4, 4, '2026-10-10', '2026-11-10', 180000, 'Vigente');
+(1, 1, date('now', '-10 days'), date('now', '+20 days'), 180000, 'Vigente'),
+(2, 2, date('now', '-5 days'), date('now', '+25 days'), 210000, 'Vigente'),
+(3, 3, date('now', '-45 days'), date('now', '-15 days'), 90000, 'Vigente'),
+(4, 4, date('now', '-2 days'), date('now', '+28 days'), 180000, 'Vigente');
 
 INSERT OR IGNORE INTO vehiculos (placa, id_usuario, tipo_vehiculo, marca, modelo, color) VALUES
 ('ABC123', 1, 'Automóvil', 'Mazda', 'Mazda 3', 'Rojo'),
@@ -132,3 +201,9 @@ INSERT OR IGNORE INTO registros_acceso (id_acceso, placa, id_celda, fecha_hora_e
 
 INSERT OR IGNORE INTO novedades_vehiculo (id_novedad, id_acceso, momento_registro, tipo_novedad, descripcion, fecha_hora_registro) VALUES
 (1, 1, 'Entrada', 'Carrocería', 'Presenta leve golpe en guardabarro trasero derecho.', '2026-10-20T13:30:00.000Z');
+
+INSERT OR IGNORE INTO pagos (id_pago, id_usuario, placa, id_mensualidad, valor_pagado, metodo_pago, fecha_transaccion, operador, observaciones) VALUES
+(1, 1, 'ABC123', 1, 180000, 'Transferencia', date('now', '-10 days'), 'Operador Portería', 'Pago mensualidad Octubre-Noviembre'),
+(2, 2, 'XYZ789', 2, 210000, 'Tarjeta', date('now', '-5 days'), 'Operador Portería', 'Pago mensualidad Camioneta'),
+(3, 3, 'MTO45D', 3, 90000, 'Efectivo', date('now', '-45 days'), 'Operador Portería', 'Pago mensualidad Motocicleta'),
+(4, 4, 'KLR890', 4, 180000, 'Efectivo', date('now', '-2 days'), 'Administrador', 'Renovación presencial');
